@@ -89,7 +89,7 @@ against any single one running out of quota.
 2. Install the library:
 
 ```bash
-pip install "embedfallback[all] @ git+https://github.com/YOUR_USERNAME/embedfallback.git"
+pip install "embedfallback[all] @ git+https://github.com/Aryan-1947/Embedfallback.git"
 ```
 
 3. Set your keys as environment variables (or use a `.env` file with
@@ -194,6 +194,23 @@ your current configuration:
 - Canonical provider present but its model string changed -> proceeds, but
   logs a warning and re-derives alignment for the remaining chunks.
 
+## Concurrent ingestion
+
+Chunks are embedded in parallel batches (5 at a time by default) rather
+than strictly one-at-a-time, which meaningfully speeds up ingestion for
+large documents -- a 78-chunk real-world PDF went from 84s to 28s in
+testing, roughly a 3x improvement. Adjust batch size via `concurrency=`:
+
+```python
+pipeline = IngestionPipeline(providers=[...], concurrency=10)
+```
+
+The batch size is currently fixed rather than automatically sized to each
+provider's specific rate limit -- a higher-limit provider could safely
+handle a larger batch than a stricter one. Tune `concurrency` down if you
+hit rate limits more often than expected, or up if a provider has generous
+limits and you want faster ingestion.  
+
 ## Evaluation harness
 
 Run real, measured comparisons between a single-provider baseline and a
@@ -246,9 +263,6 @@ evaluation harness on your own data if retrieval quality is critical.
 - **Rate-limit classification depends on providers returning informative
   error payloads.** Providers that don't will fall into a conservative
   cooldown that may still be wrong in either direction.
-- **No batch-level concurrency yet.** Chunks are embedded one at a time,
-  sequentially. This is correct and resilient but not maximally fast --
-  parallelizing within a provider's rate limit is a planned improvement.
 
 ## Project layout
 
