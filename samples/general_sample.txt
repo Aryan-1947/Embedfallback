@@ -1,0 +1,16 @@
+The history of computing spans centuries, from mechanical calculators to modern silicon chips.
+Early pioneers like Charles Babbage and Ada Lovelace laid theoretical groundwork long before
+electronic computers existed. The mid-20th century saw vacuum tubes give way to transistors,
+which in turn were miniaturized into integrated circuits. Each generation of hardware unlocked
+new kinds of software, from batch-processed punch cards to interactive operating systems.
+
+By the 1970s and 1980s, personal computers brought computing into homes and small businesses.
+The rise of the internet in the 1990s connected these machines into a global network, changing
+how people communicated, shopped, and worked. Mobile phones later put that same connectivity
+into everyone's pocket, and cloud computing moved much of the actual processing off local
+devices and into remote data centers.
+
+Today, machine learning models trained on vast datasets can write text, generate images, and
+carry on conversations. This progress didn't happen in a straight line -- it involved decades
+of incremental improvements, occasional dead ends, and a few genuine breakthroughs that
+reshaped what seemed possible.

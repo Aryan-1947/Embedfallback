@@ -1,0 +1,20 @@
+This Master Services Agreement ("Agreement") is entered into as of the Effective Date by and
+between the Provider and the Client. Whereas Provider possesses certain expertise and Client
+desires to retain such services, the parties agree as follows.
+
+Section 1: Scope of Services. Provider shall render the services described in Exhibit A
+attached hereto and incorporated herein by reference. Any modification to the scope of
+services shall require a written amendment executed by both parties.
+
+Section 2: Indemnification. Each party shall indemnify, defend, and hold harmless the other
+party from and against any and all claims, liabilities, damages, and expenses, including
+reasonable attorneys' fees, arising out of or relating to a breach of this Agreement or the
+indemnifying party's negligence or willful misconduct.
+
+Section 3: Limitation of Liability. In no event shall either party's aggregate liability
+under this Agreement exceed the total fees paid in the twelve months preceding the claim.
+
+Section 4: Governing Law and Dispute Resolution. This Agreement shall be governed by the laws
+of the applicable jurisdiction without regard to conflict of law principles. Any dispute
+arising hereunder shall first be subject to good-faith negotiation, and failing resolution,
+shall be submitted to binding arbitration.
