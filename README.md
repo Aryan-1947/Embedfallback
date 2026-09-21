@@ -1,4 +1,4 @@
-# embedfallback
+# Embedfallback
 
 A rate-limit-resilient embedding ingestion pipeline that lets you chain
 multiple embedding API providers as fallbacks -- **without silently
