@@ -1,13 +1,20 @@
 """Wires chunking -> routing -> embedding -> alignment -> output into one
 resumable pipeline, with resume-time checkpoint validation.
+
+Chunks within a document are embedded in concurrent batches (default 5 at
+a time) rather than strictly one-at-a-time, to reduce total ingestion time
+for large documents. Correctness (fallback, alignment, checkpointing,
+resumability) is unchanged -- concurrency only affects throughput.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
-from dataclasses import asdict, dataclass, field
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .alignment import AlignmentEngine, get_anchor_corpus
@@ -18,6 +25,7 @@ from .router import NoProviderAvailableError, ProviderRouter
 logger = logging.getLogger("embedfallback.orchestrator")
 
 DEFAULT_CHECKPOINT_DIR = Path.home() / ".embedfallback" / "checkpoints"
+DEFAULT_CONCURRENCY = 5
 
 
 @dataclass
@@ -58,6 +66,7 @@ class IngestionOrchestrator:
         anchor_corpus_extra: list[str] | None = None,
         checkpoint_dir: Path | str = DEFAULT_CHECKPOINT_DIR,
         max_provider_attempts_per_batch: int | None = None,
+        concurrency: int = DEFAULT_CONCURRENCY,
     ):
         self.router = router
         self.chunker = chunker
@@ -68,6 +77,12 @@ class IngestionOrchestrator:
         self.max_provider_attempts_per_batch = (
             max_provider_attempts_per_batch or len(router.providers)
         )
+        # How many chunks to embed concurrently. 1 reproduces the old
+        # strictly-sequential behavior exactly.
+        self.concurrency = max(1, concurrency)
+        self._router_lock = threading.Lock()
+
+    # -- checkpointing -----------------------------------------------------
 
     def _checkpoint_path(self, doc_id: str) -> Path:
         return self.checkpoint_dir / f"{doc_id}.ingestion_state.json"
@@ -123,6 +138,72 @@ class IngestionOrchestrator:
 
         return True
 
+    # -- per-chunk embedding (runs inside worker threads) -------------------
+
+    def _embed_one_chunk(
+        self, chunk: Chunk, canonical_holder: list,
+    ) -> tuple[list[float], str, ChunkMetadata, bool]:
+        """Embeds a single chunk, trying providers with fallback. Thread-safe:
+        all reads/writes of shared router state and the canonical-provider
+        holder happen under self._router_lock. `canonical_holder` is a
+        2-element list [provider_name, model] acting as a mutable box shared
+        across concurrently-running chunks in the same batch (and across
+        batches), so whichever chunk's embed call completes first legitimately
+        establishes the canonical provider for the whole document -- exactly
+        matching the original sequential "first successful embed wins" rule.
+        """
+        excluded: set[str] = set()
+        attempts = 0
+
+        while True:
+            attempts += 1
+            if attempts > self.max_provider_attempts_per_batch:
+                raise NoProviderAvailableError(dict(self.router.cooldowns))
+
+            with self._router_lock:
+                provider = self.router.get_available_provider(exclude=excluded)
+                is_canonical_pinning_moment = canonical_holder[0] is None
+
+            try:
+                result = provider.embed([chunk.text])
+            except RateLimitExceeded as e:
+                with self._router_lock:
+                    self.router.mark_rate_limited(
+                        provider.name, e.kind, e.retry_after_seconds, reason=e.message
+                    )
+                excluded.add(provider.name)
+                continue
+
+            with self._router_lock:
+                if is_canonical_pinning_moment and canonical_holder[0] is None:
+                    canonical_holder[0] = provider.name
+                    canonical_holder[1] = provider.model
+                canonical_name = canonical_holder[0]
+
+            vector = result.vectors[0]
+            if provider.name != canonical_name:
+                canonical_provider_obj = self.router._by_name[canonical_name]
+                aligned_vectors, confidence = self.aligner.align(
+                    [vector], provider, canonical_provider_obj,
+                    self.corpus_version, self.corpus_texts,
+                )
+                vector = aligned_vectors[0]
+                meta = ChunkMetadata(
+                    chunk_id=chunk.id, provider=provider.name, model=provider.model,
+                    aligned_to=canonical_name, alignment_confidence=confidence,
+                )
+                switched = True
+            else:
+                meta = ChunkMetadata(
+                    chunk_id=chunk.id, provider=provider.name, model=provider.model,
+                    aligned_to=None, alignment_confidence=1.0,
+                )
+                switched = False
+
+            return vector, chunk.text, meta, switched
+
+    # -- main entrypoint -----------------------------------------------------
+
     def ingest_document(self, doc_id: str, text: str) -> IngestionResult:
         start_time = time.time()
         resume_warnings: list[str] = []
@@ -166,66 +247,34 @@ class IngestionOrchestrator:
 
         remaining = [c for c in all_chunks if c.id not in completed_ids]
 
-        for chunk in remaining:
-            excluded: set[str] = set()
-            attempts = 0
-            embedded = False
+        canonical_holder = [canonical_provider_name, canonical_model]
 
-            while not embedded:
-                attempts += 1
-                if attempts > self.max_provider_attempts_per_batch:
-                    raise NoProviderAvailableError(dict(self.router.cooldowns))
+        i = 0
+        while i < len(remaining):
+            batch = remaining[i:i + self.concurrency]
 
-                try:
-                    provider = self.router.get_available_provider(exclude=excluded)
-                except NoProviderAvailableError:
-                    raise
+            batch_results: dict[str, tuple] = {}
+            with ThreadPoolExecutor(max_workers=len(batch)) as executor:
+                future_to_chunk = {
+                    executor.submit(self._embed_one_chunk, chunk, canonical_holder): chunk
+                    for chunk in batch
+                }
+                for future in as_completed(future_to_chunk):
+                    chunk = future_to_chunk[future]
+                    batch_results[chunk.id] = future.result()
 
-                is_canonical_pinning_moment = canonical_provider_name is None
-
-                try:
-                    result = provider.embed([chunk.text])
-                except RateLimitExceeded as e:
-                    self.router.mark_rate_limited(
-                        provider.name, e.kind, e.retry_after_seconds, reason=e.message
-                    )
-                    excluded.add(provider.name)
-                    continue
-
-                if is_canonical_pinning_moment:
-                    canonical_provider_name = provider.name
-                    canonical_model = provider.model
-
-                vector = result.vectors[0]
-                if provider.name != canonical_provider_name:
-                    provider_switches += 1
-                    canonical_provider_obj = self.router._by_name[canonical_provider_name]
-                    aligned_vectors, confidence = self.aligner.align(
-                        [vector], provider, canonical_provider_obj,
-                        self.corpus_version, self.corpus_texts,
-                    )
-                    vector = aligned_vectors[0]
-                    meta = ChunkMetadata(
-                        chunk_id=chunk.id,
-                        provider=provider.name,
-                        model=provider.model,
-                        aligned_to=canonical_provider_name,
-                        alignment_confidence=confidence,
-                    )
-                else:
-                    meta = ChunkMetadata(
-                        chunk_id=chunk.id,
-                        provider=provider.name,
-                        model=provider.model,
-                        aligned_to=None,
-                        alignment_confidence=1.0,
-                    )
-
+            # Preserve original chunk order within the batch, regardless of
+            # which thread happened to finish first.
+            for chunk in batch:
+                vector, chunk_text, meta, switched = batch_results[chunk.id]
                 vectors.append(vector)
-                chunk_texts.append(chunk.text)
+                chunk_texts.append(chunk_text)
                 metadata.append(meta)
                 completed_ids.add(chunk.id)
-                embedded = True
+                if switched:
+                    provider_switches += 1
+
+            canonical_provider_name, canonical_model = canonical_holder[0], canonical_holder[1]
 
             self._save_checkpoint(doc_id, {
                 "canonical_provider": canonical_provider_name,
@@ -244,6 +293,8 @@ class IngestionOrchestrator:
                     for v, t, m in zip(vectors, chunk_texts, metadata)
                 },
             })
+
+            i += self.concurrency
 
         elapsed = time.time() - start_time
         return IngestionResult(

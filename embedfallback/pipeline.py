@@ -123,6 +123,7 @@ class IngestionPipeline:
         anchor_corpus_extra: list[str] | None = None,
         chunk_kwargs: dict | None = None,
         checkpoint_dir: str | Path | None = None,
+        concurrency: int = 5,
     ):
         self.providers = providers
         if len(providers) < 2:
@@ -143,7 +144,7 @@ class IngestionPipeline:
         router = ProviderRouter(providers)
         aligner = AlignmentEngine()
 
-        orchestrator_kwargs = {}
+        orchestrator_kwargs = {"concurrency": concurrency}
         if checkpoint_dir is not None:
             orchestrator_kwargs["checkpoint_dir"] = checkpoint_dir
 

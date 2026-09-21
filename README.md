@@ -65,17 +65,17 @@ Use any subset of them; more providers configured means more resilience
 against any single one running out of quota.
 
 
-**Want a provider not listed here?** You'll need to add support for it
-yourself by writing a new adapter file (see `embedfallback/providers/`,
-e.g. `google.py` or `voyage.py`, as a template -- each one just wraps that
-provider's API call and classifies its rate-limit errors into the shared
-`RateLimitExceeded` format). Once a new provider's adapter exists and is
-added to your `providers=[...]` list, alignment between it and any other
-provider builds automatically the first time you use that combination --
-no manual anchor setup required, just a one-time wait while it embeds the
-anchor corpus for that new provider. You don't need deep familiarity with
-this codebase to write one -- any AI coding assistant can generate the
-adapter for you by following the pattern of the existing provider files.
+> **Want a provider not listed here?** You'll need to add support for it
+> yourself by writing a new adapter file (see `embedfallback/providers/`,
+> e.g. `google.py` or `voyage.py`, as a template -- each one just wraps that
+> provider's API call and classifies its rate-limit errors into the shared
+> `RateLimitExceeded` format). Once a new provider's adapter exists and is
+> added to your `providers=[...]` list, alignment between it and any other
+> provider builds automatically the first time you use that combination --
+> no manual anchor setup required, just a one-time wait while it embeds the
+> anchor corpus for that new provider. You don't need deep familiarity with
+> this codebase to write one -- any AI coding assistant can generate the
+> adapter for you by following the pattern of the existing provider files.
 
 ## Getting started
 
