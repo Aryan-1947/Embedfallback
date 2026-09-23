@@ -89,7 +89,7 @@ against any single one running out of quota.
 2. Install the library:
 
 ```bash
-pip install "embedfallback[all] @ git+https://github.com/Aryan-1947/Embedfallback.git"
+pip install "embedfallback[all] @ git+https://github.com/Aryan-1947/embedfallback.git"
 ```
 
 3. Set your keys as environment variables (or use a `.env` file with
